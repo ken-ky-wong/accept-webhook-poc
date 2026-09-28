@@ -1,6 +1,6 @@
 @accept_webhook_poc_HostAddress = http://localhost:5107
 
-GET {{accept_webhook_poc_HostAddress}}/weatherforecast/
+GET {{accept_webhook_poc_HostAddress}}/api/webhooks/authorize-net/
 Accept: application/json
 
 ###
