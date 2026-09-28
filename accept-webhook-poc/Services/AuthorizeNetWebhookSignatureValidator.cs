@@ -8,7 +8,7 @@ public sealed class AuthorizeNetWebhookSignatureValidator(IConfiguration configu
 
     public WebhookSignatureValidationResult Validate(byte[] rawBody, string? signature)
     {
-        var signatureKey = configuration["AuthorizeNet:WebhookSignatureKey"];
+        var signatureKey = configuration["AuthorizeNet-SignatureKey"];
         if (string.IsNullOrWhiteSpace(signatureKey))
         {
             return WebhookSignatureValidationResult.SignatureKeyNotConfigured;
