@@ -10,15 +10,24 @@ public sealed class InMemoryAuthorizeNetWebhookStore : IAuthorizeNetWebhookStore
 {
     private readonly ConcurrentDictionary<Guid, StoredAuthorizeNetWebhook> _webhooks = new();
 
-    public StoredAuthorizeNetWebhook Save(string rawJson)
+    public StoredAuthorizeNetWebhook Save(Guid notificationId, string rawJson)
     {
         var webhook = new StoredAuthorizeNetWebhook(
             Guid.NewGuid(),
+            notificationId,
             rawJson,
             DateTimeOffset.UtcNow);
 
         _webhooks[webhook.Id] = webhook;
         return webhook;
+    }
+
+    public StoredAuthorizeNetWebhook? GetByNotificationId(Guid notificationId)
+    {
+        return _webhooks.Values
+            .Where(webhook => webhook.NotificationId == notificationId)
+            .OrderByDescending(webhook => webhook.ReceivedAtUtc)
+            .FirstOrDefault();
     }
 
     public IReadOnlyList<StoredAuthorizeNetWebhook> GetByReceivedAt(

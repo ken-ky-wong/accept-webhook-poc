@@ -53,8 +53,20 @@ public sealed class AuthorizeNetWebhookController(
             return Unauthorized();
         }
 
-        var storedWebhook = webhookStore.Save(Encoding.UTF8.GetString(rawBody));
+        var storedWebhook = webhookStore.Save(notification.NotificationId, Encoding.UTF8.GetString(rawBody));
         return Ok(new AuthorizeNetWebhookReceipt(storedWebhook.Id, storedWebhook.ReceivedAtUtc));
+    }
+
+    /// <summary>
+    /// Returns the most recently received stored webhook for an Authorize.Net notification ID.
+    /// </summary>
+    [HttpGet("{notificationId:guid}")]
+    [ProducesResponseType(typeof(StoredAuthorizeNetWebhook), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<StoredAuthorizeNetWebhook> GetByNotificationId(Guid notificationId)
+    {
+        var webhook = webhookStore.GetByNotificationId(notificationId);
+        return webhook is null ? NotFound() : Ok(webhook);
     }
 
     /// <summary>
