@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using accept_webhook_poc.Models;
 using accept_webhook_poc.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -13,6 +14,9 @@ public sealed class AuthorizeNetWebhookController(
     IAuthorizeNetWebhookStore webhookStore,
     AuthorizeNetWebhookSignatureValidator signatureValidator) : ControllerBase
 {
+    private const int MaximumSearchResults = 50;
+    private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
+
     /// <summary>
     /// Receives a signed Authorize.Net webhook and stores its unmodified JSON in memory.
     /// </summary>
@@ -51,5 +55,54 @@ public sealed class AuthorizeNetWebhookController(
 
         var storedWebhook = webhookStore.Save(Encoding.UTF8.GetString(rawBody));
         return Ok(new AuthorizeNetWebhookReceipt(storedWebhook.Id, storedWebhook.ReceivedAtUtc));
+    }
+
+    /// <summary>
+    /// Lists up to the 50 most recently received webhooks within an optional receive-time range.
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(AuthorizeNetWebhookSearchResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult<AuthorizeNetWebhookSearchResult> List(
+        [FromQuery] DateTimeOffset? from,
+        [FromQuery] DateTimeOffset? to)
+    {
+        var effectiveFrom = from ?? DateTimeOffset.MinValue;
+        var effectiveTo = to ?? DateTimeOffset.UtcNow;
+
+        if (effectiveFrom > effectiveTo)
+        {
+            return BadRequest("The 'from' value must be earlier than or equal to the 'to' value.");
+        }
+
+        var matchingWebhooks = webhookStore.GetByReceivedAt(
+            effectiveFrom,
+            effectiveTo,
+            MaximumSearchResults + 1);
+
+        var items = matchingWebhooks
+            .Take(MaximumSearchResults)
+            .Select(ToSummary)
+            .ToArray();
+
+        var message = matchingWebhooks.Count > MaximumSearchResults
+            ? $"More matching webhooks exist; only the latest {MaximumSearchResults} are returned."
+            : null;
+
+        return Ok(new AuthorizeNetWebhookSearchResult(effectiveFrom, effectiveTo, items, message));
+    }
+
+    private static AuthorizeNetWebhookSummary ToSummary(StoredAuthorizeNetWebhook webhook)
+    {
+        var notification = JsonSerializer.Deserialize<AuthorizeNetWebhookNotification>(webhook.RawJson, WebJsonOptions)
+            ?? throw new InvalidOperationException("A stored webhook could not be deserialized.");
+
+        return new AuthorizeNetWebhookSummary(
+            webhook.Id,
+            webhook.ReceivedAtUtc,
+            notification.NotificationId,
+            notification.EventType,
+            notification.EventDate,
+            notification.WebhookId);
     }
 }

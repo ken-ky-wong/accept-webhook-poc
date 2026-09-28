@@ -20,4 +20,16 @@ public sealed class InMemoryAuthorizeNetWebhookStore : IAuthorizeNetWebhookStore
         _webhooks[webhook.Id] = webhook;
         return webhook;
     }
+
+    public IReadOnlyList<StoredAuthorizeNetWebhook> GetByReceivedAt(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        int maximumResults)
+    {
+        return _webhooks.Values
+            .Where(webhook => webhook.ReceivedAtUtc >= from && webhook.ReceivedAtUtc <= to)
+            .OrderByDescending(webhook => webhook.ReceivedAtUtc)
+            .Take(maximumResults)
+            .ToArray();
+    }
 }
