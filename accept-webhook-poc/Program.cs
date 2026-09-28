@@ -1,9 +1,13 @@
+using accept_webhook_poc.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
 builder.Services.AddSwaggerGen();
+builder.Services.AddSingleton<IAuthorizeNetWebhookStore, InMemoryAuthorizeNetWebhookStore>();
+builder.Services.AddSingleton<AuthorizeNetWebhookSignatureValidator>();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
@@ -18,6 +22,16 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/webhooks/authorize-net"))
+    {
+        context.Request.EnableBuffering();
+    }
+
+    await next();
+});
 
 app.UseAuthorization();
 
