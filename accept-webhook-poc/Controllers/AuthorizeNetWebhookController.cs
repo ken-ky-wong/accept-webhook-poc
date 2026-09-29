@@ -12,7 +12,8 @@ namespace accept_webhook_poc.Controllers;
 [Route("api/webhooks/authorize-net")]
 public sealed class AuthorizeNetWebhookController(
     IAuthorizeNetWebhookStore webhookStore,
-    AuthorizeNetWebhookSignatureValidator signatureValidator) : ControllerBase
+    AuthorizeNetWebhookSignatureValidator signatureValidator,
+    ILogger<AuthorizeNetWebhookController> logger) : ControllerBase
 {
     private const int MaximumSearchResults = 50;
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
@@ -31,6 +32,11 @@ public sealed class AuthorizeNetWebhookController(
         [FromHeader(Name = "X-ANET-Signature")] string? signature,
         CancellationToken cancellationToken)
     {
+        logger.LogInformation(
+            "Received Authorize.Net webhook {NotificationId} with event type {EventType}",
+            notification.NotificationId,
+            notification.EventType);
+
         Request.Body.Position = 0;
 
         await using var bodyBuffer = new MemoryStream();
@@ -43,6 +49,9 @@ public sealed class AuthorizeNetWebhookController(
 
         if (validationResult == WebhookSignatureValidationResult.SignatureKeyNotConfigured)
         {
+            logger.LogError(
+                "Webhook {NotificationId} rejected because the Authorize.Net signature key is not configured",
+                notification.NotificationId);
             return Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
                 title: "Authorize.Net webhook signature key is not configured.");
@@ -50,10 +59,17 @@ public sealed class AuthorizeNetWebhookController(
 
         if (validationResult != WebhookSignatureValidationResult.Valid)
         {
+            logger.LogWarning(
+                "Webhook {NotificationId} rejected because its signature was invalid",
+                notification.NotificationId);
             return Unauthorized();
         }
 
         var storedWebhook = webhookStore.Save(notification.NotificationId, Encoding.UTF8.GetString(rawBody));
+        logger.LogInformation(
+            "Accepted Authorize.Net webhook {NotificationId} with event type {EventType}",
+            notification.NotificationId,
+            notification.EventType);
         return Ok(new AuthorizeNetWebhookReceipt(storedWebhook.Id, storedWebhook.ReceivedAtUtc));
     }
 

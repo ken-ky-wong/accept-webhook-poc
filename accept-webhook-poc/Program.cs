@@ -1,49 +1,125 @@
+using System.IO;
 using Azure.Identity;
 using accept_webhook_poc.Services;
+using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var keyVaultUri = builder.Configuration["KeyVault:Uri"];
-if (!string.IsNullOrWhiteSpace(keyVaultUri))
+var logFilePath = builder.Configuration["Serilog:FilePath"];
+if (string.IsNullOrWhiteSpace(logFilePath))
 {
-    builder.Configuration.AddAzureKeyVault(
-        new Uri(keyVaultUri),
-        new DefaultAzureCredential());
+    var appServiceHome = Environment.GetEnvironmentVariable("HOME");
+    var appServiceInstanceId = Environment.GetEnvironmentVariable("WEBSITE_INSTANCE_ID");
+    logFilePath = !string.IsNullOrWhiteSpace(appServiceHome) &&
+                  !string.IsNullOrWhiteSpace(appServiceInstanceId)
+        ? Path.Combine(
+            appServiceHome,
+            "LogFiles",
+            "Application",
+            Path.GetFileName(appServiceInstanceId),
+            "webhook-.log")
+        : Path.Combine(builder.Environment.ContentRootPath, "logs", "webhook-.log");
 }
 
-// Add services to the container.
-
-builder.Services.AddControllers();
-builder.Services.AddSwaggerGen();
-builder.Services.AddSingleton<IAuthorizeNetWebhookStore, InMemoryAuthorizeNetWebhookStore>();
-builder.Services.AddSingleton<AuthorizeNetWebhookSignatureValidator>();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
-
-var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+if (!Path.IsPathRooted(logFilePath))
 {
-    app.MapOpenApi();
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    logFilePath = Path.GetFullPath(logFilePath, builder.Environment.ContentRootPath);
 }
 
-app.UseHttpsRedirection();
+var logDirectory = Path.GetDirectoryName(logFilePath)
+    ?? throw new InvalidOperationException("The configured log file path has no directory.");
+Directory.CreateDirectory(logDirectory);
 
-app.Use(async (context, next) =>
+var outputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}";
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+    .WriteTo.Console(outputTemplate: outputTemplate)
+    .WriteTo.File(
+        logFilePath,
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 14,
+        fileSizeLimitBytes: 10 * 1024 * 1024,
+        rollOnFileSizeLimit: true,
+        outputTemplate: outputTemplate)
+    .CreateBootstrapLogger();
+
+try
 {
-    if (context.Request.Path.StartsWithSegments("/api/webhooks/authorize-net"))
+    builder.Host.UseSerilog((context, services, loggerConfiguration) =>
+        loggerConfiguration
+            .ReadFrom.Configuration(context.Configuration)
+            .ReadFrom.Services(services)
+            .Enrich.FromLogContext()
+            .WriteTo.Console(outputTemplate: outputTemplate)
+            .WriteTo.File(
+                logFilePath,
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 14,
+                fileSizeLimitBytes: 10 * 1024 * 1024,
+                rollOnFileSizeLimit: true,
+                outputTemplate: outputTemplate));
+
+    var keyVaultUri = builder.Configuration["KeyVault:Uri"];
+    if (!string.IsNullOrWhiteSpace(keyVaultUri))
     {
-        context.Request.EnableBuffering();
+        builder.Configuration.AddAzureKeyVault(
+            new Uri(keyVaultUri),
+            new DefaultAzureCredential());
+        Log.Information("Azure Key Vault configuration is enabled");
     }
 
-    await next();
-});
+    builder.Services.AddControllers();
+    builder.Services.AddSwaggerGen();
+    builder.Services.AddSingleton<IAuthorizeNetWebhookStore, InMemoryAuthorizeNetWebhookStore>();
+    builder.Services.AddSingleton<AuthorizeNetWebhookSignatureValidator>();
+    builder.Services.AddOpenApi();
 
-app.UseAuthorization();
+    var app = builder.Build();
 
-app.MapControllers();
+    app.UseSerilogRequestLogging(options =>
+    {
+        options.GetLevel = (context, _, exception) =>
+            exception is not null || context.Response.StatusCode >= StatusCodes.Status500InternalServerError
+                ? LogEventLevel.Error
+                : context.Response.StatusCode >= StatusCodes.Status400BadRequest
+                    ? LogEventLevel.Warning
+                    : LogEventLevel.Information;
+    });
 
-app.Run();
+    if (app.Environment.IsDevelopment())
+    {
+        app.MapOpenApi();
+        app.UseSwagger();
+        app.UseSwaggerUI();
+    }
+
+    app.UseHttpsRedirection();
+
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/api/webhooks/authorize-net"))
+        {
+            context.Request.EnableBuffering();
+        }
+
+        await next();
+    });
+
+    app.UseAuthorization();
+
+    app.MapControllers();
+
+    app.Run();
+}
+catch (Exception exception)
+{
+    Log.Fatal(exception, "Application terminated unexpectedly");
+    throw;
+}
+finally
+{
+    Log.CloseAndFlush();
+}

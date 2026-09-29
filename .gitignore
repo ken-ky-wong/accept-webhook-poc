@@ -10,6 +10,7 @@
 .vs
 
 # Build results
+/accept-webhook-poc/logs/
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
@@ -25,6 +26,7 @@ bld/
 [Ll]og/
 [Ll]ogs/
 [Pp]ublish/
+deploy.zip
 
 # .NET Core
 project.lock.json
