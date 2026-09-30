@@ -42,15 +42,24 @@ public sealed class AuthorizeNetWebhookController(
         await using var bodyBuffer = new MemoryStream();
         await Request.Body.CopyToAsync(bodyBuffer, cancellationToken);
         var rawBody = bodyBuffer.ToArray();
+        logger.LogInformation(
+            "Buffered {BodyLength} bytes for webhook {NotificationId}",
+            rawBody.Length,
+            notification.NotificationId);
 
         var validationResult = signatureValidator.Validate(
             rawBody,
             signature);
 
+        logger.LogInformation(
+            "Webhook {NotificationId} signature validation returned {ValidationResult}",
+            notification.NotificationId,
+            validationResult);
+
         if (validationResult == WebhookSignatureValidationResult.SignatureKeyNotConfigured)
         {
             logger.LogError(
-                "Webhook {NotificationId} rejected because the Authorize.Net signature key is not configured",
+                "Returning 503 for webhook {NotificationId}: the Authorize.Net signature key is not configured",
                 notification.NotificationId);
             return Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
@@ -60,14 +69,15 @@ public sealed class AuthorizeNetWebhookController(
         if (validationResult != WebhookSignatureValidationResult.Valid)
         {
             logger.LogWarning(
-                "Webhook {NotificationId} rejected because its signature was invalid",
+                "Returning 401 for webhook {NotificationId}: its signature was invalid",
                 notification.NotificationId);
             return Unauthorized();
         }
 
+        logger.LogInformation("Saving validated webhook {NotificationId}", notification.NotificationId);
         var storedWebhook = webhookStore.Save(notification.NotificationId, Encoding.UTF8.GetString(rawBody));
         logger.LogInformation(
-            "Accepted Authorize.Net webhook {NotificationId} with event type {EventType}",
+            "Returning 200 after accepting webhook {NotificationId} with event type {EventType}",
             notification.NotificationId,
             notification.EventType);
         return Ok(new AuthorizeNetWebhookReceipt(storedWebhook.Id, storedWebhook.ReceivedAtUtc));
