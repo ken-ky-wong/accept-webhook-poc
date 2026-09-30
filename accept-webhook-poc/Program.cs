@@ -98,16 +98,6 @@ try
 
     app.UseHttpsRedirection();
 
-    app.Use(async (context, next) =>
-    {
-        if (context.Request.Path.StartsWithSegments("/api/webhooks/authorize-net"))
-        {
-            context.Request.EnableBuffering();
-        }
-
-        await next();
-    });
-
     app.UseAuthorization();
 
     app.MapControllers();

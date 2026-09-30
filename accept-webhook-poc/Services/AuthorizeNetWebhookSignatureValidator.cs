@@ -13,8 +13,8 @@ public sealed class AuthorizeNetWebhookSignatureValidator(
     {
         logger.LogInformation("Validating Authorize.Net webhook signature");
         logger.LogInformation("Webhook raw body length: {BodyLength} bytes", rawBody.Length);
-        logger.LogInformation("Webhook raw body UTF-8: {RawBody}", Encoding.UTF8.GetString(rawBody));
         logger.LogInformation("Webhook raw body Base64: {RawBodyBase64}", Convert.ToBase64String(rawBody));
+        logger.LogInformation("Webhook raw body UTF-8: {RawBody}", Encoding.UTF8.GetString(rawBody));
         logger.LogInformation("Webhook X-ANET-Signature: {Signature}", signature ?? "<missing>");
 
         var signatureKey = configuration["AuthorizeNet-SignatureKey"];

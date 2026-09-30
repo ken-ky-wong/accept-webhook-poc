@@ -28,39 +28,35 @@ public sealed class AuthorizeNetWebhookController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<AuthorizeNetWebhookReceipt>> Receive(
-        [FromBody] AuthorizeNetWebhookNotification notification,
         [FromHeader(Name = "X-ANET-Signature")] string? signature,
         CancellationToken cancellationToken)
     {
         logger.LogInformation(
-            "Received Authorize.Net webhook {NotificationId} with event type {EventType}",
-            notification.NotificationId,
-            notification.EventType);
-
-        Request.Body.Position = 0;
+            "Received Authorize.Net webhook request {TraceIdentifier}",
+            HttpContext.TraceIdentifier);
 
         await using var bodyBuffer = new MemoryStream();
         await Request.Body.CopyToAsync(bodyBuffer, cancellationToken);
         var rawBody = bodyBuffer.ToArray();
         logger.LogInformation(
-            "Buffered {BodyLength} bytes for webhook {NotificationId}",
+            "Buffered {BodyLength} bytes for webhook request {TraceIdentifier}",
             rawBody.Length,
-            notification.NotificationId);
+            HttpContext.TraceIdentifier);
 
         var validationResult = signatureValidator.Validate(
             rawBody,
             signature);
 
         logger.LogInformation(
-            "Webhook {NotificationId} signature validation returned {ValidationResult}",
-            notification.NotificationId,
+            "Webhook request {TraceIdentifier} signature validation returned {ValidationResult}",
+            HttpContext.TraceIdentifier,
             validationResult);
 
         if (validationResult == WebhookSignatureValidationResult.SignatureKeyNotConfigured)
         {
             logger.LogError(
-                "Returning 503 for webhook {NotificationId}: the Authorize.Net signature key is not configured",
-                notification.NotificationId);
+                "Returning 503 for webhook request {TraceIdentifier}: the Authorize.Net signature key is not configured",
+                HttpContext.TraceIdentifier);
             return Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
                 title: "Authorize.Net webhook signature key is not configured.");
@@ -69,11 +65,37 @@ public sealed class AuthorizeNetWebhookController(
         if (validationResult != WebhookSignatureValidationResult.Valid)
         {
             logger.LogWarning(
-                "Returning 401 for webhook {NotificationId}: its signature was invalid",
-                notification.NotificationId);
+                "Returning 401 for webhook request {TraceIdentifier}: its signature was invalid",
+                HttpContext.TraceIdentifier);
             return Unauthorized();
         }
 
+        AuthorizeNetWebhookNotification? notification;
+        try
+        {
+            notification = JsonSerializer.Deserialize<AuthorizeNetWebhookNotification>(rawBody, WebJsonOptions);
+        }
+        catch (JsonException exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Returning 400 for webhook request {TraceIdentifier}: the signed body is not a valid Authorize.Net notification",
+                HttpContext.TraceIdentifier);
+            return BadRequest("The signed request body is not a valid Authorize.Net webhook notification.");
+        }
+
+        if (notification is null)
+        {
+            logger.LogWarning(
+                "Returning 400 for webhook request {TraceIdentifier}: the signed body deserialized to null",
+                HttpContext.TraceIdentifier);
+            return BadRequest("The signed request body must contain an Authorize.Net webhook notification.");
+        }
+
+        logger.LogInformation(
+            "Deserialized validated webhook {NotificationId} with event type {EventType}",
+            notification.NotificationId,
+            notification.EventType);
         logger.LogInformation("Saving validated webhook {NotificationId}", notification.NotificationId);
         var storedWebhook = webhookStore.Save(notification.NotificationId, Encoding.UTF8.GetString(rawBody));
         logger.LogInformation(
