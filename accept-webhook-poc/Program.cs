@@ -3,6 +3,7 @@ using Azure.Identity;
 using accept_webhook_poc.Services;
 using Serilog;
 using Serilog.Events;
+using System.Security.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -73,6 +74,11 @@ try
 
     builder.Services.AddControllers();
     builder.Services.AddSwaggerGen();
+    builder.Services.AddHttpClient<IAcceptHostedSessionService, AuthorizeNetAcceptHostedSessionService>()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        SslProtocols = SslProtocols.Tls12
+    });    
     builder.Services.AddSingleton<IAuthorizeNetWebhookStore, InMemoryAuthorizeNetWebhookStore>();
     builder.Services.AddSingleton<AuthorizeNetWebhookSignatureValidator>();
     builder.Services.AddOpenApi();

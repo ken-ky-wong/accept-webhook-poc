@@ -4,3 +4,11 @@ GET {{accept_webhook_poc_HostAddress}}/api/webhooks/authorize-net/
 Accept: application/json
 
 ###
+
+POST {{accept_webhook_poc_HostAddress}}/api/accept-hosted/sessions
+Content-Type: application/json
+
+{
+	"amount": 0.50,
+	"invoiceNumber": "INV-12345"
+}
