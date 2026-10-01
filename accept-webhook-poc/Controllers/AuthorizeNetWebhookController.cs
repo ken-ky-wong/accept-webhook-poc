@@ -32,31 +32,30 @@ public sealed class AuthorizeNetWebhookController(
         CancellationToken cancellationToken)
     {
         logger.LogInformation(
-            "Received Authorize.Net webhook request {TraceIdentifier}",
-            HttpContext.TraceIdentifier);
+            "Received Authorize.Net webhook request");
+        logger.LogInformation(
+            "Content-Length header: {ContentLength}",
+            Request.ContentLength?.ToString() ?? "(not present)");
 
         await using var bodyBuffer = new MemoryStream();
         await Request.Body.CopyToAsync(bodyBuffer, cancellationToken);
         var rawBody = bodyBuffer.ToArray();
         logger.LogInformation(
-            "Buffered {BodyLength} bytes for webhook request {TraceIdentifier}",
-            rawBody.Length,
-            HttpContext.TraceIdentifier);
+            "Buffered {BodyLength} bytes for webhook request",
+            rawBody.Length);
 
         var validationResult = signatureValidator.Validate(
             rawBody,
             signature);
 
         logger.LogInformation(
-            "Webhook request {TraceIdentifier} signature validation returned {ValidationResult}",
-            HttpContext.TraceIdentifier,
+            "Webhook request signature validation returned {ValidationResult}",
             validationResult);
 
         if (validationResult == WebhookSignatureValidationResult.SignatureKeyNotConfigured)
         {
             logger.LogError(
-                "Returning 503 for webhook request {TraceIdentifier}: the Authorize.Net signature key is not configured",
-                HttpContext.TraceIdentifier);
+                "Returning 503 for webhook request: the Authorize.Net signature key is not configured");
             return Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
                 title: "Authorize.Net webhook signature key is not configured.");
@@ -65,8 +64,7 @@ public sealed class AuthorizeNetWebhookController(
         if (validationResult != WebhookSignatureValidationResult.Valid)
         {
             logger.LogWarning(
-                "Returning 401 for webhook request {TraceIdentifier}: its signature was invalid",
-                HttpContext.TraceIdentifier);
+                "Returning 401 for webhook request: its signature was invalid");
             return Unauthorized();
         }
 
@@ -79,16 +77,14 @@ public sealed class AuthorizeNetWebhookController(
         {
             logger.LogWarning(
                 exception,
-                "Returning 400 for webhook request {TraceIdentifier}: the signed body is not a valid Authorize.Net notification",
-                HttpContext.TraceIdentifier);
+                "Returning 400 for webhook request: the signed body is not a valid Authorize.Net notification");
             return BadRequest("The signed request body is not a valid Authorize.Net webhook notification.");
         }
 
         if (notification is null)
         {
             logger.LogWarning(
-                "Returning 400 for webhook request {TraceIdentifier}: the signed body deserialized to null",
-                HttpContext.TraceIdentifier);
+                "Returning 400 for webhook request: the signed body deserialized to null");
             return BadRequest("The signed request body must contain an Authorize.Net webhook notification.");
         }
 

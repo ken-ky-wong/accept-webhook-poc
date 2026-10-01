@@ -2,6 +2,7 @@ using System.IO;
 using Azure.Identity;
 using accept_webhook_poc.Services;
 using Serilog;
+using Serilog.Context;
 using Serilog.Events;
 using System.Security.Authentication;
 
@@ -32,7 +33,7 @@ var logDirectory = Path.GetDirectoryName(logFilePath)
     ?? throw new InvalidOperationException("The configured log file path has no directory.");
 Directory.CreateDirectory(logDirectory);
 
-var outputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}";
+var outputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] TraceIdentifier={TraceIdentifier} {Message:lj}{NewLine}{Exception}";
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
@@ -73,7 +74,8 @@ try
     }
 
     builder.Services.AddControllers();
-    builder.Services.AddSwaggerGen();
+    builder.Services.AddSwaggerGen(options =>
+        options.OperationFilter<accept_webhook_poc.Swagger.AuthorizeNetWebhookOperationFilter>());
     builder.Services.AddHttpClient<IAcceptHostedSessionService, AuthorizeNetAcceptHostedSessionService>()
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
@@ -81,9 +83,16 @@ try
     });    
     builder.Services.AddSingleton<IAuthorizeNetWebhookStore, InMemoryAuthorizeNetWebhookStore>();
     builder.Services.AddSingleton<AuthorizeNetWebhookSignatureValidator>();
-    builder.Services.AddOpenApi();
 
     var app = builder.Build();
+
+    app.Use(async (context, next) =>
+    {
+        using (LogContext.PushProperty("TraceIdentifier", context.TraceIdentifier))
+        {
+            await next();
+        }
+    });
 
     app.UseSerilogRequestLogging(options =>
     {
@@ -97,7 +106,6 @@ try
 
     if (app.Environment.IsDevelopment())
     {
-        app.MapOpenApi();
         app.UseSwagger();
         app.UseSwaggerUI();
     }
